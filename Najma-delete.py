@@ -1,65 +1,77 @@
 import tkinter as tk
 from tkinter import messagebox
+import sqlite3
 
-inventory = [
-    {"name": "Panadol", "quantity": 50, "price": 100, "expiry": "2026-01-01"},
-    {"name": "Amoxicillin", "quantity": 30, "price": 150, "expiry": "2025-12-01"},
-    {"name": "Diclofenac", "quantity": 20, "price": 80, "expiry": "2025-05-01"}
-]
+# Stack for undo
 deleted_stack = []
 
-def show_inventory():
-    if not inventory:
-        print("Inventory is empty.")
-        return
 
-    print("\nCurrent Inventory:")
-    for i, med in enumerate(inventory, 1):
-        print(f"{i}. {med['name']} | Qty: {med['quantity']} | Price: {med['price']} | Exp: {med['expiry']}")
 
-def delete_medicine(name):
-    global inventory, deleted_stack
+def get_inventory():
+    conn = sqlite3.connect('pharmacy.db')
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM medicines")
+    rows = cur.fetchall()
+    conn.close()
+    return rows
 
-    for i, med in enumerate(inventory):
-        if med["name"].lower() == name.lower():
-            deleted_stack.append(med)
-            del inventory[i]
-            print(f"{name} deleted.")
-            return
-    print(f"Medicine '{name}' not found.")
+
+def delete_medicine():
+    name = entry.get()
+    conn = sqlite3.connect('pharmacy.db')
+    cur = conn.cursor()
+
+    # Save deleted for undo
+    cur.execute("SELECT * FROM medicines WHERE name = ?", (name,))
+    result = cur.fetchone()
+    if result:
+        deleted_stack.append(result)
+        cur.execute("DELETE FROM medicines WHERE name = ?", (name,))
+        conn.commit()
+        messagebox.showinfo("Deleted", f"{name} deleted from DB.")
+    else:
+        messagebox.showerror("Error", "Medicine not found.")
+    conn.close()
+    update_listbox()
+
 
 def undo_delete():
-    global inventory, deleted_stack
-
     if deleted_stack:
         med = deleted_stack.pop()
-        inventory.append(med)
-        print(f"{med['name']} restored to inventory.")
+        conn = sqlite3.connect('pharmacy.db')
+        cur = conn.cursor()
+        cur.execute("INSERT OR REPLACE INTO medicines VALUES (?, ?, ?, ?)", med)
+        conn.commit()
+        conn.close()
+        messagebox.showinfo("Undo", f"{med[0]} restored.")
+        update_listbox()
     else:
-        print("Nothing to undo.")
+        messagebox.showinfo("Undo", "Nothing to undo.")
 
-def menu():
-    while True:
-        print("\n=== Pharmacy Inventory Menu ===")
-        print("1. View Inventory")
-        print("2. Delete Medicine")
-        print("3. Undo Delete")
-        print("4. Exit")
 
-        choice = input("Select option (1-4): ")
+def update_listbox():
+    listbox.delete(0, tk.END)
+    for med in get_inventory():
+        display = f"{med[0]}: Qty={med[1]}, Price={med[2]}, Exp={med[3]}"
+        listbox.insert(tk.END, display)
 
-        if choice == '1':
-            show_inventory()
-        elif choice == '2':
-            name = input("Enter medicine name to delete: ")
-            delete_medicine(name)
-        elif choice == '3':
-            undo_delete()
-        elif choice == '4':
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid choice. Try again.")
 
-# Run the menu
-menu()
+# GUI
+root = tk.Tk()
+root.title("Pharmacy Inventory - Delete (with DB)")
+
+tk.Label(root,  text="Enter Medicine Name to Delete:").pack()
+entry = tk.Entry(root)
+entry.pack()
+
+tk.Button(root, text="Delete", command=delete_medicine).pack(pady=5)
+tk.Button(root, text="Undo Delete", command=undo_delete).pack(pady=5)
+
+listbox = tk.Listbox(root, width=60)
+listbox.pack(pady=10)
+
+update_listbox()
+
+root.mainloop()
+
+    
